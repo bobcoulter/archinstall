@@ -1,0 +1,25 @@
+/* Connect to wifi network on arch install
+   Created August 4, 2022 by Robert Coulter */
+   
+/* start iwctl */
+# iwctl
+
+/* get the device name you will be using */
+# [iwd] device list
+/* we will use devicename for our name */
+
+/* scan and connect to the network you will be using */
+# [iwd] station devicename scan
+# [iwd] station devicename get-networks
+/* select your network, we will use networkname */
+# [iwd] station devicename connect networkname
+
+*/ enter password
+Passphrase **********
+
+>/ verify you are connected */
+# [iwd] station devicename show
+
+# [iwd] exit
+
+/* then use nmcli to set wifi - not having wifi unable to test */

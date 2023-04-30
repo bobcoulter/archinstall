@@ -1,0 +1,131 @@
+﻿/* September 2, 2022 created by Robert D Coulter 
+   updated April 16, 2023
+*/
+
+# ip a    /* verify internet address,if wireless use iwctl */
+                        
+# nano /etc/pacman.conf /* enable ParallelDownload */
+# pacman -Syy                      
+# timedatectl status    /* Verify time and date */
+
+/* Partition the disks, 1 efi required for uefi boot 2nd for root, use swap */
+#  fdisk /dev/nvme0n1   /* use gpt */
+/* partition 1 512M and change type to efi
+   partition 2 swap partition 16G ram use 4G, 32G ram use 6G
+   Partition 3 the remaining default type is ok - name it ROOT */
+
+/* format the disk partitions */
+# mkfs.vfat -F32 /dev/nvme0n1p1
+# mkfs.btrfs /dev/nvme0n1p3
+# mkswap /dev/nvme0n1p2
+# swapon /dev/nvme0n1p2
+
+/* now create the root btrfs subvolumes
+   we do .snapshots now so fstab is fixed after installing snapper */
+# mount /dev/nvme0n1p3 /mnt
+# btrfs su cr /mnt/@
+# btrfs su cr /mnt/@home
+# btrfs su cr /mnt/@log
+# btrfs su cr /mnt/@snapshots
+
+/* we umount mnt and then mount the subvolumes where we will use them */
+# umount /mnt
+# mount -o discard=async,compress=zstd:1,noatime,subvol=@ /dev/nvme0n1p3 /mnt/
+# mkdir -p /mnt/{boot,home,.snapshots,var/log}
+# mount -o discard=async,compress=zstd:1,noatime,subvol=@home /dev/nvme0n1p3 /mnt/home
+# mount -o discard=async,compress=zstd:1,noatime,subvol=@log /dev/nvme0n1p3 /mnt/var/log
+# mount -o discard=async,compress=zstd:1,noatime,subvol=@snapshots /dev/nvme0n1p3 /mnt/.snapshots
+# mount /dev/nvme0n1p1 /mnt/boot/efi
+
+# pacman -Sy archlinux-keyring   /* insure arch keyring uptodate */
+/* run pacstrap and then create the fstab file */
+# pacstrap -K /mnt base base-devel git linux linux-headers linux-firmware
+  amd-ucode bash-completion nano efibootmgr btrfs-progs reflector grub
+  grub-btrfs fuse networkmanager
+# genfstab -U /mnt >> /mnt/etc/fstab
+
+/* Change into our new system and start configuration*/
+# arch-chroot /mnt
+
+/* Set clock and timezone */
+# ln -sf /usr/share/zoneinfo/America/Boise /etc/localtime
+# hwclock --systohc --utc
+
+# reflector -c US --latest 6 --sort rate --save /etc/pacman.d/mirrirlist
+# nano /etc/pacman.conf /* enable ParallelDownload and Color */
+# pacman -Syy
+
+/* For locale gen I use en_US.UTF-8, select what is correct for yours*/
+# nano /etc/locale.gen
+# locale-gen
+
+/* add LANG=en_US-UTF-8 to locale.conf */
+# echo LANG=en_US.UTF-8 > /etc/locale.conf
+
+/* now we set hostname and hosts*/
+# echo yourhostname > /etc/hostname
+
+# nano /etc/hosts
+   127.0.0.1       localhost
+   ::1             localhost
+   127.0.1.1       hostname.localdomain        hostname
+
+/* add btrfs to modules */
+# nano /etc/mkinitcpio.conf
+   modules(btrfs)
+# mkinitcpio -p linux
+
+/* set root password and add user and set sudo*/
+# passwd
+# useradd -m -g users -G wheel,audio,video,optical,storage yourusername
+# passwd yourusername
+# EDITOR=nano visudo
+/* uncomment correct wheel near the end (the one that requires a password)*/
+   %wheel ALL=(ALL) ALL
+
+/* we use grub because of snapper, so we can boot*/
+# grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB
+# grub-mkconfig -o /boot/grub/grub.cfg
+
+# systemctl enable ducpcd.service
+
+/* now we reboot*/
+# exit
+# umount -a
+# shutdown now          /* shutdown to remove install usb */
+
+/* next up lets update our pacman mirrorlist, this will take some time */
+$ sudo reflector -c US --latest 6 --save /etc/pacman.d/mirrorlist
+
+/* at this time we should have a working command line system, time to install
+   a desktop */
+$ sudo pacman -Syu sddm plasma plasma-pa konsole dolphin firefox
+  plasma-wayland-session cups usbutils kcalc hunspell-en_US
+  system-config-printer libreoffice-fresh plasma-systemmonitor snapper
+  snap-pac okular xsane inotify-tools telegram-desktop bluez bluez-utils blueman
+$ sudo systenctl enable cups.service
+$ sudo systemctl enable sddm.service
+$ sudo systemctl enable reflector.timer
+
+/* now we logout into the desktop*/
+$ reboot
+
+/* lets set up snapper now /*
+# umount /.snapshots/
+# rm -rf /.snapshots/
+# snapper -c root create-config /
+# btrfs su delete /.snapshots
+# mkdir /.snapshots
+# mount -a
+# btrfs subvol list /
+# btrfs subvol get-default /
+# nano /etc/snapper/configs/root
+/* ALLOW_USERS='userid' /
+/* set number of timeline-limits and the end of the config */
+$ snapper ls
+
+$ sudo systemctl enable snapper-timeline.timer
+$ sudo systemctl enable snapper-cleanup.timer
+$ sudo grub-mkconfig -o /boot/grub/grub.cfg
+
+$ reboot

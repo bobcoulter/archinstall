@@ -1,0 +1,21 @@
+﻿# Systemd-boot created February 8,2023 by Bob Coulter
+
+bootctl install
+
+nano /boot/efi/loader/loader.conf
+	default arch
+	timeout 3
+	
+blkid
+	Find the UUID of your root (/) partition
+	
+nano /boot/efi/loader/entries/arch.conf
+	title Archlinux
+	linux /vmlinuz-linux #this is the kernel. if you use another kernel like lts or zen, use vmlinuz-linux-lts or vmlinuz-liux-zen
+	initrd /initramfs-linux.img
+	initrd /intel-ucode.img #amd-ucode for amd users. you need the package intel-ucode or amd-ucode. These are microcode updates to ensure stability
+	options root=UUID=PUT-YOUR-UUID-HERE rw
+	
+pacman -Rcnsu grub efibootmgr brub-btrfs(if using btrfs)
+
+yay -S systemd-boot-pacman-hook
